@@ -1,0 +1,89 @@
+#!/bin/bash
+set -e
+
+# Step 1: reading an translating to the variables input information
+read -p "Please, provides the server user: " serveruser
+read -p "Please, provides the server address: " serveraddress
+read -p "Provides the full server path for WordPress root directory: " wpserverpath
+wpfoldername=$(basename $wpserverpath)
+read -p "Provides the full local wordpress address path: " localsitepath
+wplocalfoldername=$(basename $localsitepath)
+wpdirname=$(dirname $localsitepath)
+read -p "Provides the site address do replace in the database data: " siteaddress
+read -p "Provides the local site address: " localsiteaddress
+
+#Tests: output the input results and processing.
+#echo Serveruser: $serveruser
+#echo Serveraddress: $serveraddress
+#echo Full server path: $wpserverpath
+#echo WordPress folder name: $wpfoldername
+#echo Full local wordpress path: $localsitepath
+#echo Local folder name: $wplocalfoldername
+#echo Local WordPress folder location: $wpdirname
+#echo Site address: $siteaddress
+#echo Site local address: $localsiteaddress
+
+
+#Step 2: Generating the file that will the executed remotelly, and sending to the server
+echo "dbname=\$(cat wp-config.php | grep -i define | grep DB_NAME | cut -f4 -d\')" > script.sh 
+echo "dbuser=\$(cat wp-config.php | grep -i define | grep DB_USER | cut -f4 -d\')" >> script.sh
+echo "userpass=\$(cat wp-config.php | grep -i define | grep DB_PASSWORD | cut -f4 -d\')" >> script.sh
+echo "dbhost=\$(cat wp-config.php | grep -i define | grep DB_HOST | cut -f4 -d\')" >> script.sh 
+echo mysqldump -u\$dbuser -p\$userpass -h\$dbhost \$dbname \> db.sql >> script.sh
+scp script.sh $serveruser@$serveraddress:/$wpserverpath
+rm script.sh
+ssh t4h@ftp.t4h.com.br << EOF
+cd $wpserverpath
+chmod 777 script.sh
+sh script.sh
+rm script.sh
+EOF
+
+# Test: check if a file called db.sql is created in the wordpress folder server.
+
+
+# Step 3: Creates a folder in the current location, download everything to it and delete the original database file in the server
+mkdir $wpfoldername
+scp -rv $serveruser@$serveraddress:/$wpserverpath .
+ssh $serveruser@$serveraddress << EOF
+cd $wpfoldername
+rm db.sql
+EOF
+
+
+# Step 4: Fetch local database in the current installation
+localdatabasename=$(cat $localsitepath/wp-config.php | grep -i define | grep DB_NAME | cut -f4 -d\')
+localdatabaseuser=$(cat $localsitepath/wp-config.php | grep -i define | grep DB_USER | cut -f4 -d\')
+localdatabasepass=$(cat $localsitepath/wp-config.php | grep -i define | grep DB_PASSWORD | cut -f4 -d\')
+
+# Test: See if it fetches the local database credentials correctly
+#echo Local database user: $localdatabaseuser
+#echo Local database name: $localdatabasename
+#echo Local database password: $localdatabasepass
+
+
+# Step 5: Make replaces with local values
+cd $wpfoldername
+old_dbuser=$(cat wp-config.php | grep -i define | grep DB_USER | cut -f4 -d\')
+old_dbname=$(cat wp-config.php | grep -i define | grep DB_NAME | cut -f4 -d\')
+old_dbpass=$(cat wp-config.php | grep -i define | grep DB_PASSWORD | cut -f4 -d\')
+old_dbhost=$(cat wp-config.php | grep -i define | grep DB_HOST | cut -f4 -d\')
+sed -i s@$siteaddress@$localsiteaddress@g db.sql
+sed -i s@$wpserverpath@$localsitepath@g db.sql
+sed -i s@$wpserverpath@$localsitepath@g wp-config.php
+sed -i /define.*.DB_HOST/s@$old_dbhost@localhost@g wp-config.php
+sed -i /define.*.DB_USER/s@$old_dbuser@$localdatabaseuser@g wp-config.php
+sed -i /define.*.DB_PASSWORD/s@$old_dbpass@$localdatabasepass@g wp-config.php
+sed -i /define.*.DB_NAME/s@$old_dbname@$localdatabasename@g wp-config.php
+
+
+# Step 6: update current local folders
+mysql -u$localdatabaseuser -p$localdatabasepass -e "DROP DATABASE t4h"
+mysql -u$localdatabaseuser -p$localdatabasepass -e "CREATE DATABASE t4h"
+mysql -u$localdatabaseuser -p$localdatabasepass $localdatabasename < db.sql
+rm -rvf $localsitepath
+cd ..
+echo Moverá: 
+mv $wpfoldername $wplocalfoldername
+mv $wplocalfildername /cygdrive/c/wamp64/www/
+
