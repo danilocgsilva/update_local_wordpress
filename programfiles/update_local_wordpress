@@ -32,7 +32,7 @@ echo "dbhost=\$(cat wp-config.php | grep -i define | grep DB_HOST | cut -f4 -d\'
 echo mysqldump -u\$dbuser -p\$userpass -h\$dbhost \$dbname \> db.sql >> script.sh
 scp script.sh $serveruser@$serveraddress:/$wpserverpath
 rm script.sh
-ssh t4h@ftp.t4h.com.br << EOF
+ssh $serveruser@$serveraddress << EOF
 cd $wpserverpath
 chmod 777 script.sh
 sh script.sh
